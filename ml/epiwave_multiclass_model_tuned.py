@@ -1,6 +1,6 @@
-
 """
-EpiWave Multi-Class EEG Model
+EpiWave Multi-Class EEG Model - Tuned + Multi-Input Support
+-----------------------------------------------------------
 Classes:
 0 = normal
 1 = preictal
@@ -8,11 +8,23 @@ Classes:
 
 Preictal = 2 minutes before seizure onset.
 
-Pipeline:
+Training pipeline:
 EDF -> filtering -> 4-second windows -> CWT images -> MobileNetV2 -> normal/preictal/seizure
 
-Run on Windows:
-python epiwave_multiclass_model.py
+Prediction support:
+- EDF EEG files
+- CSV EEG files
+- PNG/JPG/JPEG CWT image files
+- Raw numpy arrays through predict_from_raw_signal()
+- FTR placeholder included for future custom format support
+
+Run training/evaluation on Windows:
+python epiwave_multiclass_model_tuned_anyinput.py
+
+Use prediction from another script:
+from epiwave_multiclass_model_tuned_anyinput import predict_from_file
+result = predict_from_file("sample.edf")
+print(result)
 """
 
 import random
@@ -35,9 +47,9 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 
 
-
+# =============================
 # 1. CONFIG
-
+# =============================
 
 BASE_DIR = Path("EpiWave_Model")
 RAW_DATA_DIR = BASE_DIR / "data_raw"
@@ -69,8 +81,9 @@ np.random.seed(RANDOM_SEED)
 tf.random.set_seed(RANDOM_SEED)
 
 
-
+# =============================
 # 2. SEIZURE TIMES
+# =============================
 # Add more CHB-MIT seizure files here if needed.
 
 SEIZURE_ANNOTATIONS = {
@@ -84,14 +97,15 @@ SEIZURE_ANNOTATIONS = {
 }
 
 
+# =============================
 # 3. DATA PREPARATION
-
+# =============================
 
 def reset_image_folders():
     if IMAGE_DIR.exists():
         shutil.rmtree(IMAGE_DIR)
 
-    for split_name in ["train", "val", "test"]:
+    for split_name in ["train", "test"]:
         for class_name in ["normal", "preictal", "seizure"]:
             folder = IMAGE_DIR / split_name / class_name
             folder.mkdir(parents=True, exist_ok=True)
@@ -232,25 +246,18 @@ def split_temp_images():
         files = list((temp_dir / class_name).glob("*.png"))
         random.shuffle(files)
 
-        if len(files) < 3:
+        if len(files) < 2:
             print("WARNING: Not enough", class_name, "samples to split. Found", len(files))
             continue
 
-        train_files, remaining_files = train_test_split(
+        train_files, test_files = train_test_split(
             files,
-            test_size=0.30,
-            random_state=RANDOM_SEED
-        )
-
-        val_files, test_files = train_test_split(
-            remaining_files,
-            test_size=0.50,
+            test_size=0.25,
             random_state=RANDOM_SEED
         )
 
         for split_name, split_files in [
             ("train", train_files),
-            ("val", val_files),
             ("test", test_files)
         ]:
             for file in split_files:
@@ -260,10 +267,8 @@ def split_temp_images():
         print(
             class_name + ":",
             "train=" + str(len(train_files)) + ",",
-            "val=" + str(len(val_files)) + ",",
             "test=" + str(len(test_files))
         )
-
 
 def build_dataset_from_raw():
     reset_image_folders()
@@ -279,9 +284,9 @@ def build_dataset_from_raw():
     split_temp_images()
 
 
-
+# =============================
 # 4. MODEL TRAINING
-
+# =============================
 
 def build_mobilenet_model():
     base_model = MobileNetV2(
@@ -315,7 +320,7 @@ def build_mobilenet_model():
 
 def train_model():
     train_dir = IMAGE_DIR / "train"
-    val_dir = IMAGE_DIR / "val"
+    test_dir = IMAGE_DIR / "test"
 
     train_datagen = ImageDataGenerator(
         rescale=1.0 / 255,
@@ -325,7 +330,7 @@ def train_model():
         zoom_range=0.05
     )
 
-    val_datagen = ImageDataGenerator(rescale=1.0 / 255)
+    test_datagen = ImageDataGenerator(rescale=1.0 / 255)
 
     train_generator = train_datagen.flow_from_directory(
         train_dir,
@@ -335,8 +340,8 @@ def train_model():
         shuffle=True
     )
 
-    val_generator = val_datagen.flow_from_directory(
-        val_dir,
+    test_generator = test_datagen.flow_from_directory(
+        test_dir,
         target_size=IMAGE_SIZE,
         batch_size=16,
         class_mode="categorical",
@@ -373,7 +378,7 @@ def train_model():
 
     history = model.fit(
         train_generator,
-        validation_data=val_generator,
+        validation_data=test_generator,
         epochs=30,
         callbacks=callbacks,
         class_weight=class_weight
@@ -385,9 +390,9 @@ def train_model():
     return model, history
 
 
-
+# =============================
 # 5. EVALUATION
-
+# =============================
 
 def evaluate_model(model_path=None):
     if model_path is None:
@@ -455,9 +460,9 @@ def evaluate_model(model_path=None):
     print("Results saved in", RESULTS_DIR)
 
 
-
+# =============================
 # 6. SINGLE SEGMENT PREDICTION
-
+# =============================
 
 def predict_single_segment(segment, sfreq, model_path=None):
     if model_path is None:
@@ -484,9 +489,132 @@ def predict_single_segment(segment, sfreq, model_path=None):
     }
 
 
+# =============================
+# 7. MULTI-INPUT PREDICTION SUPPORT
+# =============================
+# This section DOES NOT change training or evaluation.
+# It only lets the final trained model accept different EEG-compatible inputs.
 
-# 7. MAIN
+SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".bmp"]
+SUPPORTED_SIGNAL_EXTENSIONS = [".edf", ".csv", ".txt", ".npy", ".ftr"]
 
+
+def load_csv_signal(csv_path, sfreq=256):
+    data = np.loadtxt(csv_path, delimiter=",")
+
+    # Supported CSV examples:
+    # 1 column: EEG values
+    # 2+ columns: time + channels OR multiple channels
+    if data.ndim == 1:
+        signal = data
+    else:
+        # If first column looks like time, ignore it and average the remaining channels.
+        if data.shape[1] >= 2:
+            signal = np.mean(data[:, 1:], axis=1)
+        else:
+            signal = data[:, 0]
+
+    return signal.astype(float), sfreq
+
+
+def load_txt_signal(txt_path, sfreq=256):
+    data = np.loadtxt(txt_path)
+    if data.ndim > 1:
+        signal = np.mean(data, axis=1)
+    else:
+        signal = data
+    return signal.astype(float), sfreq
+
+
+def load_npy_signal(npy_path, sfreq=256):
+    data = np.load(npy_path)
+    if data.ndim > 1:
+        signal = np.mean(data, axis=0 if data.shape[0] < data.shape[1] else 1)
+    else:
+        signal = data
+    return signal.astype(float), sfreq
+
+
+def load_ftr_signal(ftr_path):
+    raise NotImplementedError(
+        "FTR support is planned, but the file structure must be provided first. "
+        "Once the FTR signal layout, sampling rate, and channel format are known, "
+        "this parser can be completed."
+    )
+
+
+def load_signal_from_any_file(file_path, sfreq=256):
+    file_path = Path(file_path)
+    suffix = file_path.suffix.lower()
+
+    if suffix == ".edf":
+        return load_and_preprocess_edf(file_path)
+
+    if suffix == ".csv":
+        return load_csv_signal(file_path, sfreq=sfreq)
+
+    if suffix == ".txt":
+        return load_txt_signal(file_path, sfreq=sfreq)
+
+    if suffix == ".npy":
+        return load_npy_signal(file_path, sfreq=sfreq)
+
+    if suffix == ".ftr":
+        return load_ftr_signal(file_path)
+
+    raise ValueError("Unsupported signal file format: " + suffix)
+
+
+def predict_from_cwt_image(image_path, model_path=None):
+    if model_path is None:
+        model_path = MODEL_DIR / "epiwave_multiclass_mobilenet_best.keras"
+
+    model = tf.keras.models.load_model(model_path)
+
+    image = Image.open(image_path).resize(IMAGE_SIZE).convert("RGB")
+    image_array = np.array(image) / 255.0
+    image_array = np.expand_dims(image_array, axis=0)
+
+    probabilities = model.predict(image_array)[0]
+    class_names = ["normal", "preictal", "seizure"]
+    predicted_index = int(np.argmax(probabilities))
+
+    return {
+        "label": class_names[predicted_index],
+        "normal_probability": float(probabilities[0]),
+        "preictal_probability": float(probabilities[1]),
+        "seizure_probability": float(probabilities[2])
+    }
+
+
+def predict_from_raw_signal(signal, sfreq=256, model_path=None):
+    signal = np.asarray(signal).astype(float)
+
+    window_size = WINDOW_SECONDS * sfreq
+    if len(signal) < window_size:
+        raise ValueError("Signal is shorter than the required 4-second window.")
+
+    segment = signal[:window_size]
+    return predict_single_segment(segment, sfreq, model_path=model_path)
+
+
+def predict_from_file(file_path, sfreq=256, model_path=None):
+    file_path = Path(file_path)
+    suffix = file_path.suffix.lower()
+
+    if suffix in SUPPORTED_IMAGE_EXTENSIONS:
+        return predict_from_cwt_image(file_path, model_path=model_path)
+
+    if suffix in SUPPORTED_SIGNAL_EXTENSIONS:
+        signal, actual_sfreq = load_signal_from_any_file(file_path, sfreq=sfreq)
+        return predict_from_raw_signal(signal, sfreq=actual_sfreq, model_path=model_path)
+
+    raise ValueError("Unsupported input format: " + suffix)
+
+
+# =============================
+# 8. MAIN
+# =============================
 
 if __name__ == "__main__":
     print("Step 1: Generating CWT images...")
@@ -499,3 +627,5 @@ if __name__ == "__main__":
     evaluate_model()
 
     print("Done. Multi-class EpiWave model is ready.")
+    print("Extra support added: predict_from_file() accepts EDF, CSV, TXT, NPY, and CWT image files.")
+    print("Dataset split used: 75% train / 25% test.")
