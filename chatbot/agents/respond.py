@@ -9,9 +9,9 @@ RetrievedChunk = tuple[str, dict[str, object], float]
 
 SYSTEM_PROMPT = (
     "You are EpiWave, an AI assistant specialized in explaining EEG analysis results "
-    "for educational and informational purposes only. "
-    "You help users understand seizure-related patterns detected in their EEG scans. "
-    "Always base your answers strictly on the provided EEG analysis context. "
+    "and answering general questions about EEG, seizures, and neuroscience. "
+    "For questions about the user's scan, base your answers strictly on the provided EEG analysis context. "
+    "For general scientific or medical questions (e.g., 'what is a seizure', 'latest research'), use your vast internal medical and scientific knowledge to provide a comprehensive answer. "
     "Never invent medical findings or fabricate data from the scan. "
     "Never provide medical diagnoses, treatment recommendations, or clinical conclusions. "
     "Always remind users that your analysis is for educational purposes only "
@@ -58,23 +58,36 @@ def build_prompt(
     has_scans: bool = False,
 ) -> str:
     context_block = _format_context(verified_chunks)
+
+    # Automatically fetch live internet data for general queries using DDGS
+    # This gives unlimited internet access without hitting Google API quotas
+    if not verified_chunks and len(user_query.split()) > 2:
+        try:
+            from ddgs import DDGS
+            results = DDGS().text(user_query, max_results=3)
+            search_texts = [f"Title: {r.get('title')}\nSnippet: {r.get('body')}" for r in results]
+            if search_texts:
+                context_block += "\n\n--- LIVE INTERNET SEARCH RESULTS ---\n"
+                context_block += "\n\n".join(search_texts)
+        except Exception:
+            pass
     history_block = _format_history(history)
 
     if verified_chunks:
         # Case 1: We have relevant EEG context — use it
         answer_instruction = (
-            "Write a clear, helpful answer based on the EEG analysis context above. "
+            "If the user is asking about their scan, write a clear, helpful answer based on the EEG analysis context above. "
             "Cite the scan filename and relevant timestamps when referencing specific findings. "
+            "If the user is asking a general scientific or medical question, you may answer it comprehensively using your own general knowledge. "
             "Remind the user that this is for educational purposes only."
         )
     elif has_scans:
         # Case 2: Scans have been analyzed but the query didn't match well
         answer_instruction = (
-            "EEG scans have been analyzed and are available, but the user's current "
-            "question did not closely match any specific findings. Answer the user's "
-            "question naturally and concisely. If they seem to be asking about the scan, "
-            "suggest they ask a more specific question (e.g. about seizure events, "
-            "spike counts, channel activity, or wave patterns). "
+            "Answer the user's query naturally and concisely. "
+            "If it's a general greeting (like 'hello'), just say hello back and ask how you can help. "
+            "Do NOT list out all the available scans unless the user explicitly asks you to list them. "
+            "If they seem to be asking about a scan, suggest they ask a more specific question. "
             "Do not invent any EEG findings or scan data."
         )
     else:

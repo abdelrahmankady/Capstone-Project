@@ -1,19 +1,3 @@
-"""
-test_security.py — Security-focused tests for EpiWave
-
-Covers:
-1. Path Traversal — EDF parser must reject paths outside the scans dir
-2. Input Sanitisation — Prompt injection attempts must not reach the LLM unfiltered
-3. System Prompt Integrity — SYSTEM_PROMPT must contain required safety guardrails
-4. Sensitive Data Leakage — config values must not expose secrets in error messages
-5. Embedding Model Compatibility — mismatched model raises ValueError, not silent corruption
-6. Malicious Filename — filenames with special chars must not break ID generation
-7. Large Input Guard — excessively long user query must not crash the pipeline
-8. Empty Scan Graceful Handling — empty collection must return [] without exception
-9. API Key Protection — OPENAI_API_KEY must not appear in log/error output
-10. No Clinical Advice — system prompt must explicitly forbid diagnosis/treatment
-"""
-
 from __future__ import annotations
 
 import os
@@ -24,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "chatbot"))
 
 
 # ---------------------------------------------------------------------------
@@ -156,33 +140,32 @@ class TestSystemPromptSafety:
 class TestSensitiveDataLeakage:
     """API keys must not appear in any raised exception messages."""
 
-    def test_openai_key_not_in_missing_key_error(self, monkeypatch):
+    def test_google_key_not_in_missing_key_error(self, monkeypatch):
         """ValueError for missing key must not contain the actual key value."""
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-supersecret12345")
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSyB-supersecret12345")
         # Re-import to pick up patched env
         import importlib
         import rag.vectorize as vz
         importlib.reload(vz)
 
         with pytest.raises(ValueError) as exc_info:
-            # Trigger the guard directly — patch LLM_PROVIDER to openai
-            with patch.object(vz, "OPENAI_API_KEY", ""), \
-                 patch.object(vz, "LLM_PROVIDER", "openai"):
-                vz._get_openai_client.cache_clear()
-                vz._get_openai_client()
+            # Trigger the guard directly — patch GOOGLE_API_KEY to empty
+            with patch.object(vz, "GOOGLE_API_KEY", ""):
+                vz._get_google_client.cache_clear()
+                vz._get_google_client()
 
-        assert "sk-supersecret12345" not in str(exc_info.value)
+        assert "AIzaSyB-supersecret12345" not in str(exc_info.value)
 
     def test_config_does_not_print_api_key(self, monkeypatch, capsys):
         """Loading config must not print the API key to stdout."""
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-topsecret")
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSyB-topsecret")
         import importlib
         import config
         importlib.reload(config)
 
         captured = capsys.readouterr()
-        assert "sk-topsecret" not in captured.out
-        assert "sk-topsecret" not in captured.err
+        assert "AIzaSyB-topsecret" not in captured.out
+        assert "AIzaSyB-topsecret" not in captured.err
 
 
 # ---------------------------------------------------------------------------
@@ -190,37 +173,50 @@ class TestSensitiveDataLeakage:
 # ---------------------------------------------------------------------------
 
 class TestEmbeddingCompatibility:
-    """Mismatched embedding models must be caught before silent corruption."""
+    """Mismatched embedding models must be auto-migrated (old collection deleted)."""
 
-    def test_mismatched_model_raises_value_error(self, tmp_path):
-        """If the stored model differs from config, a ValueError must be raised."""
+    def test_mismatched_backend_triggers_recreation(self, tmp_path, monkeypatch):
+        """If the stored backend differs, the collection must be deleted and recreated."""
         import chromadb
-        from rag.vectorize import _ensure_embedding_compatibility
+        import rag.vectorize as vz
 
-        # Simulate a collection that was built with a different model
-        client = chromadb.PersistentClient(path=str(tmp_path / "db"))
-        collection = client.get_or_create_collection(
-            name="test",
-            metadata={"embedding_model": "different-model", "embedding_backend": "sentence-transformers"},
+        db_path = str(tmp_path / "db")
+        # Create a collection with the old backend
+        client = chromadb.PersistentClient(path=db_path)
+        client.get_or_create_collection(
+            name="rag_documents",
+            metadata={"embedding_model": "all-MiniLM-L6-v2", "embedding_backend": "sentence-transformers", "hnsw:space": "cosine"},
         )
 
-        with pytest.raises(ValueError, match="different EMBEDDING_MODEL"):
-            _ensure_embedding_compatibility(collection)
+        # Patch config to use this temp path, clear cache
+        monkeypatch.setattr(vz, "CHROMA_DB_PATH", db_path)
+        vz._get_chroma_collection.cache_clear()
 
-    def test_mismatched_backend_raises_value_error(self, tmp_path):
-        """If the stored backend differs, a ValueError must be raised."""
+        # Should NOT raise -- it should delete the old collection and recreate
+        collection = vz._get_chroma_collection()
+        meta = collection.metadata or {}
+        assert meta.get("embedding_backend") == "google"
+
+    def test_matching_backend_no_recreation(self, tmp_path, monkeypatch):
+        """If the stored backend matches, the collection must be kept intact."""
         import chromadb
-        from rag.vectorize import _ensure_embedding_compatibility
+        import rag.vectorize as vz
+        from config import GOOGLE_EMBEDDING_MODEL
 
-        from config import EMBEDDING_MODEL
-        client = chromadb.PersistentClient(path=str(tmp_path / "db2"))
-        collection = client.get_or_create_collection(
-            name="test",
-            metadata={"embedding_model": EMBEDDING_MODEL, "embedding_backend": "openai"},
+        db_path = str(tmp_path / "db2")
+        client = chromadb.PersistentClient(path=db_path)
+        col = client.get_or_create_collection(
+            name="rag_documents",
+            metadata={"embedding_model": GOOGLE_EMBEDDING_MODEL, "embedding_backend": "google", "hnsw:space": "cosine"},
         )
+        # Add a document to verify it's not deleted
+        col.add(ids=["test-1"], documents=["test doc"], embeddings=[[0.1] * 768])
 
-        with pytest.raises(ValueError, match="different embedding backend"):
-            _ensure_embedding_compatibility(collection)
+        monkeypatch.setattr(vz, "CHROMA_DB_PATH", db_path)
+        vz._get_chroma_collection.cache_clear()
+
+        collection = vz._get_chroma_collection()
+        assert collection.count() == 1  # document preserved
 
 
 # ---------------------------------------------------------------------------

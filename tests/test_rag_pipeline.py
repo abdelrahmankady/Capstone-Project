@@ -1,14 +1,3 @@
-"""
-test_rag_pipeline.py — Tests for rag/ingest.py, rag/vectorize.py
-
-Covers:
-- Text formatting of analysis dicts
-- Chunking logic (non-empty input, empty input, metadata passthrough)
-- Vectorize: upsert, deduplication, empty input guard
-- Ingest: end-to-end with in-memory ChromaDB
-- Embedding compatibility guard
-"""
-
 from __future__ import annotations
 
 import sys
@@ -18,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "chatbot"))
 
 
 # ---------------------------------------------------------------------------
@@ -222,36 +211,6 @@ class TestVectorizeRoundtrip:
 
 
 # ---------------------------------------------------------------------------
-# Embedding device verification (was: test_mps.py at project root)
-# ---------------------------------------------------------------------------
-
-class TestEmbeddingDevice:
-    """Verify the sentence-transformer model loads on CPU, not MPS/GPU.
-
-    Critical on 8 GB M2 Macs where Ollama occupies the GPU.
-    Keeping embeddings on CPU prevents the Metal OOM crashes seen during debugging.
-    """
-
-    def test_model_loaded_on_cpu(self):
-        """Embedding model must report CPU as its device."""
-        from rag.vectorize import _get_sentence_transformer
-        model = _get_sentence_transformer()
-        device_str = str(model.device).lower()
-        assert "cpu" in device_str, (
-            f"Embedding model is on '{model.device}' — must be CPU to avoid GPU OOM. "
-            "Check that device='cpu' is set in vectorize._get_sentence_transformer()."
-        )
-
-    def test_model_can_encode_on_cpu(self):
-        """Model loaded on CPU must successfully encode a test sentence."""
-        from rag.vectorize import embed_query
-        result = embed_query("test EEG seizure spike delta wave")
-        assert isinstance(result, list)
-        assert len(result) > 0
-        assert all(isinstance(v, float) for v in result)
-
-
-# ---------------------------------------------------------------------------
 # ChromaDB connectivity (was: test_chroma.py at project root)
 # ---------------------------------------------------------------------------
 
@@ -274,10 +233,10 @@ class TestChromaConnection:
     def test_collection_has_correct_metadata(self):
         """Collection metadata must record embedding_model and embedding_backend."""
         from rag.vectorize import _get_chroma_collection
-        from config import EMBEDDING_MODEL
+        from config import GOOGLE_EMBEDDING_MODEL
         meta = _get_chroma_collection().metadata or {}
-        assert meta.get("embedding_model") == EMBEDDING_MODEL
-        assert meta.get("embedding_backend") in ("sentence-transformers", "openai")
+        assert meta.get("embedding_model") == GOOGLE_EMBEDDING_MODEL
+        assert meta.get("embedding_backend") == "google"
 
     def test_collection_uses_cosine_distance(self):
         """Collection must use cosine distance (hnsw:space=cosine) for correct scoring."""

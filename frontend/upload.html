@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EpiWave - Upload EEG</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'SF Mono', monospace;
+            background: #0a0f0d;
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        #eegCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            display: block;
+        }
+
+        .content {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .title {
+            font-size: 5rem;
+            font-weight: 300;
+            color: white;
+            text-align: center;
+            letter-spacing: 0.2em;
+            font-family: 'Segoe UI', monospace;
+            font-weight: 200;
+            margin-bottom: 0.25em;
+            text-shadow: 0 0 20px rgba(0, 200, 150, 0.3);
+        }
+
+        .title span {
+            font-weight: 600;
+            color: #3affd0;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #5a9e8a;
+            font-family: 'SF Mono', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            margin-bottom: 2rem;
+            text-transform: uppercase;
+        }
+
+        /* Upload Box - matches the theme */
+        .upload-box {
+            background: rgba(10, 20, 18, 0.85);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(58, 255, 208, 0.3);
+            border-radius: 24px;
+            padding: 2.5rem 3rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            max-width: 500px;
+            width: 100%;
+            margin: 1rem auto;
+        }
+
+        .upload-box:hover {
+            border-color: rgba(58, 255, 208, 0.8);
+            background: rgba(58, 255, 208, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .upload-icon {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .upload-text {
+            color: #ccfff0;
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-hint {
+            color: #5a9e8a;
+            font-size: 0.8rem;
+            font-family: monospace;
+        }
+
+        /* Buttons - exact same as your interface */
+        .button-container {
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 2rem;
+        }
+
+        .btn {
+            background: rgba(10, 20, 18, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(58, 255, 208, 0.35);
+            color: #ccfff0;
+            font-size: 0.9rem;
+            font-weight: 400;
+            padding: 0.7rem 1.8rem;
+            border-radius: 40px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'SF Mono', monospace;
+            letter-spacing: 0.1em;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn:hover {
+            background: rgba(58, 255, 208, 0.12);
+            border-color: rgba(58, 255, 208, 0.7);
+            transform: translateY(-1px);
+        }
+
+        /* Result cards - matching medical theme */
+        .result-card {
+            background: rgba(10, 20, 18, 0.85);
+            backdrop-filter: blur(15px);
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            border-left: 4px solid #3affd0;
+            max-width: 900px;
+            width: 100%;
+        }
+
+        .result-title {
+            color: #3affd0;
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            font-family: monospace;
+        }
+
+        /* Prediction badges */
+        .prediction {
+            text-align: center;
+            padding: 1rem;
+            border-radius: 60px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin: 1rem 0;
+        }
+
+        .prediction.normal {
+            background: rgba(58, 255, 208, 0.15);
+            border: 1px solid #3affd0;
+            color: #3affd0;
+        }
+
+        .prediction.preictal {
+            background: rgba(255, 170, 68, 0.15);
+            border: 1px solid #ffaa44;
+            color: #ffaa44;
+        }
+
+        .prediction.ictal {
+            background: rgba(255, 51, 102, 0.15);
+            border: 1px solid #ff3366;
+            color: #ff3366;
+        }
+
+        .confidence {
+            text-align: center;
+            color: #5a9e8a;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+
+        .file-name {
+            color: #3affd0;
+            font-family: monospace;
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        /* Spinner */
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(58, 255, 208, 0.2);
+            border-top-color: #3affd0;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .footer {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: #3a6a5a;
+            font-family: monospace;
+            font-size: 0.65rem;
+            z-index: 10;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        /* Scalogram canvas */
+        .scalogram-canvas {
+            background: #0a120e;
+            border-radius: 12px;
+            width: 100%;
+            height: auto;
+            border: 1px solid rgba(58, 255, 208, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            .title { font-size: 2.5rem; letter-spacing: 0.1em; }
+            .btn { font-size: 0.7rem; padding: 0.5rem 1.2rem; }
+            .upload-box { padding: 1.5rem; margin: 0 1rem; }
+            .result-card { margin: 1rem; }
+        }
+
+        /* ── Chat Panel ── */
+        .chat-panel {
+            background: rgba(8, 18, 14, 0.92);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(58, 255, 208, 0.25);
+            border-radius: 24px;
+            max-width: 900px;
+            width: 100%;
+            margin: 1.5rem auto 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: slideUp 0.4s ease;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(24px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .chat-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid rgba(58, 255, 208, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .chat-header-dot {
+            width: 8px; height: 8px;
+            background: #3affd0;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%,100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .chat-header-title {
+            color: #3affd0;
+            font-family: monospace;
+            font-size: 0.85rem;
+            letter-spacing: 0.1em;
+        }
+        .chat-messages {
+            height: 380px;
+            overflow-y: auto;
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(58,255,208,0.2) transparent;
+        }
+        .msg {
+            max-width: 85%;
+            padding: 0.75rem 1rem;
+            border-radius: 16px;
+            font-size: 0.9rem;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .msg.ai {
+            align-self: flex-start;
+            background: rgba(58, 255, 208, 0.07);
+            border: 1px solid rgba(58, 255, 208, 0.18);
+            color: #ccfff0;
+            border-bottom-left-radius: 4px;
+        }
+        .msg.user {
+            align-self: flex-end;
+            background: rgba(58, 255, 208, 0.14);
+            border: 1px solid rgba(58, 255, 208, 0.35);
+            color: #e8fff8;
+            border-bottom-right-radius: 4px;
+        }
+        .msg-label {
+            font-size: 0.65rem;
+            letter-spacing: 0.12em;
+            margin-bottom: 0.3rem;
+            opacity: 0.55;
+            font-family: monospace;
+        }
+        .typing-dots span {
+            display: inline-block;
+            width: 6px; height: 6px;
+            background: #3affd0;
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: dot-bounce 1.2s infinite;
+        }
+        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes dot-bounce {
+            0%,80%,100% { transform: translateY(0); opacity: 0.4; }
+            40% { transform: translateY(-6px); opacity: 1; }
+        }
+        .chat-input-bar {
+            display: flex;
+            gap: 0.75rem;
+            padding: 1rem 1.5rem;
+            border-top: 1px solid rgba(58, 255, 208, 0.12);
+            align-items: flex-end;
+        }
+        #chatInput {
+            flex: 1;
+            background: rgba(58, 255, 208, 0.05);
+            border: 1px solid rgba(58, 255, 208, 0.2);
+            border-radius: 14px;
+            color: #ccfff0;
+            font-family: 'Segoe UI', monospace;
+            font-size: 0.9rem;
+            padding: 0.7rem 1rem;
+            resize: none;
+            outline: none;
+            max-height: 120px;
+            min-height: 42px;
+            transition: border-color 0.2s;
+        }
+        #chatInput:focus { border-color: rgba(58, 255, 208, 0.5); }
+        #chatInput::placeholder { color: rgba(90,158,138,0.6); }
+        #sendBtn {
+            background: rgba(58, 255, 208, 0.15);
+            border: 1px solid rgba(58, 255, 208, 0.4);
+            color: #3affd0;
+            width: 42px; height: 42px;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        #sendBtn:hover:not(:disabled) { background: rgba(58,255,208,0.28); transform: scale(1.05); }
+        #sendBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+        .chat-disclaimer {
+            text-align: center;
+            color: rgba(90,158,138,0.5);
+            font-size: 0.6rem;
+            letter-spacing: 0.1em;
+            padding: 0.5rem;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="eegCanvas"></canvas>
+
+    <div class="content">
+        <div class="title"><span></span></div>
+        <div class="subtitle">UPLOAD EEG FILE • AI ANALYSIS</div>
+
+        <div class="upload-box" id="uploadBox">
+            <div class="upload-icon">[+]</div>
+            <div class="upload-text">Click or drag EEG file here</div>
+            <div class="upload-hint">.edf format • Powered by MobileNetV2</div>
+        </div>
+
+        <input type="file" id="fileInput" accept=".edf">
+        <div id="fileName" class="file-name"></div>
+
+        <!-- Step indicators -->
+        <div id="stepStatus" class="hidden" style="text-align:center;margin-top:1.5rem;">
+            <div class="spinner"></div>
+            <div id="stepText" class="upload-hint" style="margin-top:0.5rem;">Uploading file...</div>
+        </div>
+
+        <!-- Results card -->
+        <div id="results" class="hidden"></div>
+
+        <!-- Chat panel (available immediately) -->
+        <div id="chatPanel" class="chat-panel">
+            <div class="chat-header">
+                <div class="chat-header-dot"></div>
+                <div class="chat-header-title" id="chatHeaderTitle">EPIWAVE AI • ASSISTANT</div>
+                <div style="margin-left:auto;font-size:0.65rem;color:rgba(90,158,138,0.6);font-family:monospace;" id="chatScanLabel"></div>
+            </div>
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input-bar">
+                <textarea id="chatInput" placeholder="Ask anything about the scan or EEG in general..." rows="1"></textarea>
+                <button id="sendBtn">↑</button>
+            </div>
+            <div class="chat-disclaimer">FOR EDUCATIONAL PURPOSES ONLY • NOT A CLINICAL TOOL</div>
+        </div>
+
+        <div class="button-container" style="margin-top:1.5rem;">
+            <a href="index.html" class="btn">← BACK TO HOME</a>
+        </div>
+    </div>
+
+    <div class="footer">EDUCATIONAL PLATFORM • CWT SCALOGRAM • NOT FOR CLINICAL USE</div>
+
+    <script>
+        // ── EEG Background Canvas ──────────────────────────────────────────
+        const canvas = document.getElementById('eegCanvas');
+        const ctx = canvas.getContext('2d');
+        let width, height, time = 0;
+        const channels = ['Fp1','Fp2','F3','F4','C3','C4','P3','P4','O1','O2'];
+
+        function resizeCanvas() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        function drawEEG() {
+            ctx.fillStyle = '#0a120e';
+            ctx.fillRect(0, 0, width, height);
+            const ch = height / channels.length;
+            ctx.strokeStyle = '#1a4a3a'; ctx.lineWidth = 0.5;
+            for (let x = 0; x < width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke(); }
+            for (let i = 1; i < channels.length; i++) { ctx.beginPath(); ctx.moveTo(0,i*ch); ctx.lineTo(width,i*ch); ctx.stroke(); }
+            ctx.font = '11px monospace'; ctx.fillStyle = '#3a9e7a';
+            channels.forEach((name, i) => { const y = (i+0.5)*ch; ctx.fillText(name,12,y+4); ctx.fillText(name,width-35,y+4); });
+            channels.forEach((_, idx) => {
+                const yBase = (idx+0.5)*ch, amp = ch*0.2, spd = 0.5+idx*0.05, ph = idx*0.5;
+                ctx.beginPath(); ctx.strokeStyle = '#3affd0'; ctx.lineWidth = 1.0;
+                for (let x = 0; x < width; x += 2) {
+                    const t = time*spd, p = x/width;
+                    const y = yBase + (Math.sin(t*0.25+ph)*0.35 + Math.sin(t*0.6+p*1.5)*0.3 + Math.sin(t+p*2.5)*0.45 + Math.sin(t*1.8+p*4)*0.2)*amp;
+                    x === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+                }
+                ctx.stroke();
+            });
+            const mx = (time*30)%width;
+            ctx.beginPath(); ctx.strokeStyle='#3affd0'; ctx.lineWidth=0.6; ctx.setLineDash([4,8]);
+            ctx.moveTo(mx,0); ctx.lineTo(mx,height); ctx.stroke(); ctx.setLineDash([]);
+            time += 0.022;
+            requestAnimationFrame(drawEEG);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas(); drawEEG();
+
+        // ── State ─────────────────────────────────────────────────────────
+        let chatHistory = [];          // [{role, text}] — persists across uploads
+        let currentScanData = null;    // latest prediction JSON
+        let isStreaming = false;
+
+        // ── DOM refs ──────────────────────────────────────────────────────
+        const uploadBox      = document.getElementById('uploadBox');
+        const fileInput      = document.getElementById('fileInput');
+        const fileNameDisplay= document.getElementById('fileName');
+        const stepStatus     = document.getElementById('stepStatus');
+        const stepText       = document.getElementById('stepText');
+        const resultsDiv     = document.getElementById('results');
+        const chatPanel      = document.getElementById('chatPanel');
+        const chatMessages   = document.getElementById('chatMessages');
+        const chatScanLabel  = document.getElementById('chatScanLabel');
+        const chatInput      = document.getElementById('chatInput');
+        const sendBtn        = document.getElementById('sendBtn');
+
+        // Initialize chat with greeting
+        window.addEventListener('DOMContentLoaded', () => {
+            appendAIMessage("Welcome to EpiWave AI!\n\nYou can upload an EEG scan (.edf) for seizure detection analysis above, or ask me any questions about EEG, wave patterns, or general neuroscience right now.");
+        });
+
+        // ── Upload trigger ────────────────────────────────────────────────
+        uploadBox.addEventListener('click', () => fileInput.click());
+        uploadBox.addEventListener('dragover', e => { e.preventDefault(); uploadBox.style.borderColor = 'rgba(58,255,208,0.8)'; });
+        uploadBox.addEventListener('dragleave', () => uploadBox.style.borderColor = '');
+        uploadBox.addEventListener('drop', e => { e.preventDefault(); uploadBox.style.borderColor = ''; const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+        fileInput.addEventListener('change', e => { const f = e.target.files[0]; if (f) handleFile(f); });
+
+        // ── Main upload + analyze pipeline ────────────────────────────────
+        async function handleFile(file) {
+            if (!file.name.toLowerCase().endsWith('.edf')) {
+                showError('Only .edf files are supported.'); return;
+            }
+            fileNameDisplay.textContent = `Selected: ${file.name}`;
+            uploadBox.style.opacity = '0.5';
+            resultsDiv.innerHTML = ''; resultsDiv.classList.add('hidden');
+            setStep(true, 'Step 1/2 — Uploading & running ML prediction...');
+
+            let prediction;
+            try {
+                // ── Call 1: POST /api/predict ─────────────────────────────
+                const fd = new FormData();
+                fd.append('file', file);
+                const r1 = await fetch('/api/predict', { method: 'POST', body: fd });
+                if (!r1.ok) {
+                    const err = await r1.json().catch(() => ({error: r1.statusText}));
+                    throw new Error(err.error || 'Prediction failed');
+                }
+                prediction = await r1.json();
+            } catch (e) {
+                setStep(false);
+                uploadBox.style.opacity = '1';
+                showError(`Prediction error: ${e.message}`);
+                return;
+            }
+
+            setStep(true, 'Step 2/2 — Ingesting scan into knowledge base...');
+
+            try {
+                // ── Call 2: POST /api/eeg/analyze ─────────────────────────
+                const r2 = await fetch('/api/eeg/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(prediction)
+                });
+                if (!r2.ok) {
+                    const err = await r2.json().catch(() => ({error: r2.statusText}));
+                    console.error('Ingestion FAILED:', err.error);
+                    // Show the error visibly so we know what happened
+                    appendAIMessage(`⚠️ Knowledge base ingestion failed: ${err.error}\n\nThe scan results are displayed above, but I won't be able to answer questions about this specific scan until the ingestion succeeds.`);
+                } else {
+                    console.log('Ingestion succeeded for', prediction.filename);
+                }
+            } catch (e) {
+                console.error('Ingestion FAILED (network):', e.message);
+                appendAIMessage(`⚠️ Knowledge base ingestion failed: ${e.message}\n\nThe scan results are displayed above, but I won't be able to answer questions about this specific scan until the ingestion succeeds.`);
+            }
+
+            setStep(false);
+            uploadBox.style.opacity = '1';
+            currentScanData = prediction;
+
+            showResults(prediction);
+            revealChat(prediction);
+        }
+
+        // ── Step status indicator ─────────────────────────────────────────
+        function setStep(visible, text) {
+            stepStatus.classList.toggle('hidden', !visible);
+            if (text) stepText.textContent = text;
+        }
+
+        // ── Results card ──────────────────────────────────────────────────
+        function showResults(p) {
+            const labelMap = { normal:'normal', preictal:'preictal', seizure:'ictal' };
+            const cls  = labelMap[p.prediction_label] || 'normal';
+            const conf = Math.round((p.confidence_score || 0) * 100);
+            const evts = (p.seizure_events || []).length;
+            const dur  = p.duration_seconds ? `${p.duration_seconds.toFixed(1)}s` : 'N/A';
+            const chs  = p.num_channels ?? 'N/A';
+
+            resultsDiv.innerHTML = `
+              <div class="result-card" style="max-width:900px;width:100%;">
+                <div class="result-title">ML Analysis Complete — ${p.filename || 'scan'}</div>
+                <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+                  <div style="color:#5a9e8a;font-size:0.8rem;font-family:monospace;">Duration: <span style="color:#ccfff0;">${dur}</span></div>
+                  <div style="color:#5a9e8a;font-size:0.8rem;font-family:monospace;">Channels: <span style="color:#ccfff0;">${chs}</span></div>
+                  <div style="color:#5a9e8a;font-size:0.8rem;font-family:monospace;">Seizure events: <span style="color:#ccfff0;">${evts}</span></div>
+                </div>
+                <div class="prediction ${cls}">${(p.prediction_label || 'UNKNOWN').toUpperCase()}</div>
+                <div class="confidence">Model confidence: ${conf}%</div>
+                <div style="color:#5a9e8a;margin-top:1rem;line-height:1.6;font-size:0.85rem;">${(p.summary_text||'').split('\n')[0]}</div>
+              </div>`;
+            resultsDiv.classList.remove('hidden');
+        }
+
+        // ── Reveal chat panel & send auto intro ───────────────────────────
+        function revealChat(p) {
+            document.getElementById('chatHeaderTitle').textContent = 'EPIWAVE AI • SCAN CONTEXT LOADED';
+            chatScanLabel.textContent = p.filename || '';
+            chatPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            const evts  = (p.seizure_events || []).length;
+            const label = (p.prediction_label || 'unknown').toLowerCase();
+            const conf  = Math.round((p.confidence_score || 0) * 100);
+            const intro = `Scan analyzed\n\nFile: **${p.filename}**\nResult: **${label.toUpperCase()}** (${conf}% confidence)\n${evts > 0 ? `Candidate seizure events detected: **${evts}**\n` : 'No seizure events detected.\n'}\nAsk me anything — about this scan, EEG patterns, wave bands, or general neuroscience.`;
+            appendAIMessage(intro);
+        }
+
+        // ── Chat message helpers ──────────────────────────────────────────
+        function appendUserMessage(text) {
+            const wrap = document.createElement('div');
+            wrap.style.display = 'flex'; wrap.style.flexDirection = 'column'; wrap.style.alignItems = 'flex-end';
+            wrap.innerHTML = `<div class="msg-label" style="text-align:right;">YOU</div><div class="msg user">${escHtml(text)}</div>`;
+            chatMessages.appendChild(wrap);
+            scrollChat();
+        }
+
+        function appendAIMessage(text) {
+            const wrap = document.createElement('div');
+            wrap.style.display = 'flex'; wrap.style.flexDirection = 'column';
+            const bubble = document.createElement('div');
+            bubble.className = 'msg ai';
+            wrap.innerHTML = `<div class="msg-label">EPIWAVE AI</div>`;
+            wrap.appendChild(bubble);
+            chatMessages.appendChild(wrap);
+            // Render markdown-lite bold
+            bubble.innerHTML = mdLite(text);
+            scrollChat();
+            return bubble;
+        }
+
+        function appendTypingIndicator() {
+            const wrap = document.createElement('div');
+            wrap.id = 'typingWrap';
+            wrap.style.display = 'flex'; wrap.style.flexDirection = 'column';
+            wrap.innerHTML = `<div class="msg-label">EPIWAVE AI</div><div class="msg ai"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
+            chatMessages.appendChild(wrap);
+            scrollChat();
+        }
+
+        function removeTypingIndicator() {
+            const el = document.getElementById('typingWrap');
+            if (el) el.remove();
+        }
+
+        function scrollChat() {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function escHtml(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+        }
+
+        function mdLite(s) {
+            return escHtml(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+        }
+
+        // ── Send message + stream response ────────────────────────────────
+        async function sendMessage() {
+            const text = chatInput.value.trim();
+            if (!text || isStreaming) return;
+
+            chatInput.value = '';
+            chatInput.style.height = 'auto';
+            appendUserMessage(text);
+
+            // Build history array for the API (list of [user, assistant] pairs)
+            const historyPairs = [];
+            for (let i = 0; i < chatHistory.length; i += 2) {
+                if (chatHistory[i+1]) historyPairs.push([chatHistory[i], chatHistory[i+1]]);
+            }
+
+            chatHistory.push(text, ''); // placeholder for assistant response
+            isStreaming = true;
+            sendBtn.disabled = true;
+            appendTypingIndicator();
+
+            try {
+                const resp = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message: text, 
+                        history: historyPairs,
+                        filename: currentScanData ? currentScanData.filename : null
+                    })
+                });
+
+                removeTypingIndicator();
+
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({error: resp.statusText}));
+                    appendAIMessage(`Error: ${err.error}`);
+                    chatHistory.pop(); chatHistory.pop();
+                    return;
+                }
+
+                // Stream tokens
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = '';
+                const bubble = appendAIMessage('');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    fullText += decoder.decode(value, { stream: true });
+                    bubble.innerHTML = mdLite(fullText);
+                    scrollChat();
+                }
+
+                // Store assistant turn in history
+                chatHistory[chatHistory.length - 1] = fullText;
+
+            } catch (e) {
+                removeTypingIndicator();
+                appendAIMessage(`Network error: ${e.message}`);
+                chatHistory.pop(); chatHistory.pop();
+            } finally {
+                isStreaming = false;
+                sendBtn.disabled = false;
+                chatInput.focus();
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+        });
+        // Auto-grow textarea
+        chatInput.addEventListener('input', () => {
+            chatInput.style.height = 'auto';
+            chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+        });
+
+        // ── Error display ─────────────────────────────────────────────────
+        function showError(msg) {
+            resultsDiv.innerHTML = `<div class="result-card" style="border-left-color:#ff3366;max-width:900px;width:100%;"><div class="result-title" style="color:#ff3366;">Error</div><div style="color:#5a9e8a;">${escHtml(msg)}</div></div>`;
+            resultsDiv.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>

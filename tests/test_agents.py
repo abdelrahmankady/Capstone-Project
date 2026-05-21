@@ -1,15 +1,3 @@
-"""
-test_agents.py — Tests for agents/verify.py, agents/retrieve.py, agents/respond.py
-
-Covers:
-- verify_chunks: threshold filtering, sorting, empty input, edge scores
-- retrieve_chunks: empty collection guard, result structure
-- build_prompt: all three has_scans/verified_chunks branches
-- _format_context: with and without chunks
-- _format_history: with and without history
-- stream_response: delegates correctly to call_llm
-"""
-
 from __future__ import annotations
 
 import sys
@@ -19,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "chatbot"))
 
 
 # ---------------------------------------------------------------------------

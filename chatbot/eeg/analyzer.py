@@ -1,17 +1,3 @@
-"""eeg/analyzer.py — Detect seizure-related patterns and extract features from parsed EEG data.
-
-DISCLAIMER: This analysis is strictly for **educational and demonstration purposes**.
-It uses simplified heuristics and threshold-based detection that are NOT suitable for
-clinical diagnosis. Real seizure detection requires validated clinical algorithms,
-board-certified neurologist review, and FDA-cleared software.
-
-The approach:
-1. Bandpass filter the raw signal (0.5–40 Hz) to isolate the clinically relevant band.
-2. Detect spikes as amplitude excursions beyond a threshold (mean + 3×std per channel).
-3. Identify sustained high-energy bursts as candidate seizure events.
-4. Produce a structured output dict with all findings and a human-readable summary.
-"""
-
 from __future__ import annotations
 
 from typing import Any

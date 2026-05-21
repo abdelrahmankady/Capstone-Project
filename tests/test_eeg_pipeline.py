@@ -1,12 +1,3 @@
-"""
-test_eeg_pipeline.py — Tests for eeg/parser.py, eeg/analyzer.py, eeg/visualizer.py
-
-Covers:
-- Parser: valid EDF, missing file, wrong extension, corrupt file
-- Analyzer: output structure, seizure detection logic, spike counts, wave patterns
-- Visualizer: chart data structure, correct downsampling, seizure annotation format
-"""
-
 from __future__ import annotations
 
 import sys
@@ -21,7 +12,7 @@ import numpy as np
 import pytest
 
 # Ensure the chatbot package root is on sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "chatbot"))
 
 
 # ---------------------------------------------------------------------------

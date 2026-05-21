@@ -9,17 +9,23 @@ from rag.vectorize import _get_chroma_collection, embed_query
 RetrievedChunk = tuple[str, dict[str, Any], float]
 
 
-def retrieve_chunks(user_query: str) -> list[RetrievedChunk]:
+def retrieve_chunks(user_query: str, filename: str | None = None) -> list[RetrievedChunk]:
     collection = _get_chroma_collection()
     if collection.count() == 0:
         return []
 
     query_embedding = embed_query(user_query)
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=TOP_K,
-        include=["documents", "metadatas", "distances"],
-    )
+    
+    query_kwargs = {
+        "query_embeddings": [query_embedding],
+        "n_results": TOP_K,
+        "include": ["documents", "metadatas", "distances"],
+    }
+    
+    if filename:
+        query_kwargs["where"] = {"filename": filename}
+        
+    results = collection.query(**query_kwargs)
 
     documents = results.get("documents", [[]])[0]
     metadatas = results.get("metadatas", [[]])[0]

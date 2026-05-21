@@ -1,9 +1,3 @@
-"""rag/ingest.py — Ingest EEG analysis results into the RAG vector store.
-
-Replaces the old PDF-based ingestion. Receives a structured analysis dict from
-eeg.analyzer, formats it into rich text context, and passes it to vectorize.py.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timezone

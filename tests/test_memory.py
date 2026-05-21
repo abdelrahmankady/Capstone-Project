@@ -1,12 +1,3 @@
-"""
-test_memory.py — Memory usage sanity checks for the EpiWave pipeline.
-
-Verifies that key operations stay within reasonable memory bounds
-so the app doesn't silently balloon on 8 GB M2 machines.
-
-Requires: psutil (install via: pip install psutil)
-"""
-
 from __future__ import annotations
 
 import os
@@ -15,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "chatbot"))
 
 # ---------------------------------------------------------------------------
 # Dependency guard — skip entire module if psutil is not installed
@@ -38,14 +29,15 @@ class TestMemoryUsage:
         print(f"\n  Baseline RSS: {rss:.1f} MB")
         assert rss < 500, f"Baseline memory too high: {rss:.1f} MB"
 
-    def test_embedding_model_load_under_1gb(self):
-        """Loading the sentence-transformer model must stay under 1 GB total RSS."""
-        from rag.vectorize import _get_sentence_transformer
+    def test_google_client_load_under_1gb(self, monkeypatch):
+        """Loading the Google GenAI client must stay under 1 GB total RSS."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "test_key")
+        from rag.vectorize import _get_google_client
 
-        _get_sentence_transformer()   # warm up
+        _get_google_client()   # warm up
         rss = _rss_mb()
-        print(f"\n  RSS after embedding model load: {rss:.1f} MB")
-        assert rss < 1024, f"Memory after embedding load too high: {rss:.1f} MB"
+        print(f"\n  RSS after google client load: {rss:.1f} MB")
+        assert rss < 1024, f"Memory after google client load too high: {rss:.1f} MB"
 
     def test_chunking_large_text_no_leak(self):
         """Chunking a large text document must not leave RSS more than 50 MB higher."""

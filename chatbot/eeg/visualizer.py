@@ -1,9 +1,3 @@
-"""eeg/visualizer.py — Generate chart-ready JSON data from EEG analysis output.
-
-Produces frontend-agnostic data structures compatible with Chart.js, Plotly,
-or any charting library. Does NOT render anything — only returns structured data.
-"""
-
 from __future__ import annotations
 
 from typing import Any

@@ -5,87 +5,84 @@ from functools import lru_cache
 from typing import Any
 
 import chromadb
+from google import genai
 from langchain_text_splitters import TokenTextSplitter
-from openai import OpenAI
 
 from config import (
     CHROMA_COLLECTION_NAME,
     CHROMA_DB_PATH,
     CHUNK_OVERLAP,
     CHUNK_SIZE,
-    EMBEDDING_MODEL,
-    LLM_PROVIDER,
-    OPENAI_API_KEY,
+    GOOGLE_API_KEY,
+    GOOGLE_EMBEDDING_MODEL,
 )
 
 
 @lru_cache(maxsize=1)
 def _get_chroma_collection():
     client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+
+    # Check if an existing collection needs to be migrated.
+    # ChromaDB does not allow changing hnsw:space after creation, so if the
+    # existing collection was built with a different embedding backend we
+    # must delete it entirely and recreate.
+    try:
+        existing = client.get_collection(name=CHROMA_COLLECTION_NAME)
+        meta = existing.metadata or {}
+        stored_backend = meta.get("embedding_backend")
+        stored_model = meta.get("embedding_model")
+
+        backend_mismatch = stored_backend and stored_backend != "google"
+        model_mismatch = stored_model and stored_model != GOOGLE_EMBEDDING_MODEL
+
+        if backend_mismatch or model_mismatch:
+            client.delete_collection(name=CHROMA_COLLECTION_NAME)
+    except Exception:
+        # Collection doesn't exist yet -- that's fine, we'll create it below.
+        pass
+
     collection = client.get_or_create_collection(
         name=CHROMA_COLLECTION_NAME,
         metadata={
-            "embedding_model": EMBEDDING_MODEL,
-            # Storing the backend alongside the model helps us catch accidental
-            # index/query mismatches when users switch providers later.
-            "embedding_backend": _embedding_backend_name(),
+            "embedding_model": GOOGLE_EMBEDDING_MODEL,
+            "embedding_backend": "google",
             "hnsw:space": "cosine",
         },
     )
-    _ensure_embedding_compatibility(collection)
     return collection
 
 
-def _embedding_backend_name() -> str:
-    return "openai" if LLM_PROVIDER == "openai" else "sentence-transformers"
-
-
-def _ensure_embedding_compatibility(collection) -> None:
-    metadata = collection.metadata or {}
-    stored_model = metadata.get("embedding_model")
-    stored_backend = metadata.get("embedding_backend")
-
-    if stored_model and stored_model != EMBEDDING_MODEL:
-        raise ValueError(
-            "The existing ChromaDB index was built with a different EMBEDDING_MODEL. "
-            f"Expected '{stored_model}' but config is '{EMBEDDING_MODEL}'."
-        )
-    if stored_backend and stored_backend != _embedding_backend_name():
-        raise ValueError(
-            "The existing ChromaDB index was built with a different embedding backend. "
-            f"Expected '{stored_backend}' but config implies '{_embedding_backend_name()}'."
-        )
-
-
 @lru_cache(maxsize=1)
-def _get_sentence_transformer():
-    from sentence_transformers import SentenceTransformer
-    # Force CPU to avoid GPU memory contention with Ollama's Llama3 model.
-    # On 8GB M2 Macs, both models can't fit in GPU memory simultaneously.
-    return SentenceTransformer(EMBEDDING_MODEL, device="cpu")
-
-
-@lru_cache(maxsize=1)
-def _get_openai_client() -> OpenAI:
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai.")
-    return OpenAI(api_key=OPENAI_API_KEY)
+def _get_google_client() -> genai.Client:
+    """Return a cached Google GenAI client for embedding requests."""
+    if not GOOGLE_API_KEY:
+        raise ValueError(
+            "GOOGLE_API_KEY is required. Set it in your .env file. "
+            "Get a key from https://aistudio.google.com/apikey"
+        )
+    return genai.Client(api_key=GOOGLE_API_KEY)
 
 
 def embed_texts(texts: Sequence[str]) -> list[list[float]]:
+    """Embed a batch of texts using Google's embedding API.
+
+    The gemini-embedding-2 model does not reliably return one embedding per
+    item when given a list of contents — it may merge them into a single
+    embedding.  We therefore embed each text individually to guarantee a 1:1
+    mapping between input texts and output embeddings.
+    """
     if not texts:
         return []
 
-    if LLM_PROVIDER == "openai":
-        response = _get_openai_client().embeddings.create(
-            model=EMBEDDING_MODEL,
-            input=list(texts),
+    client = _get_google_client()
+    embeddings: list[list[float]] = []
+    for text in texts:
+        response = client.models.embed_content(
+            model=GOOGLE_EMBEDDING_MODEL,
+            contents=text,
         )
-        return [list(map(float, item.embedding)) for item in response.data]
-
-    model = _get_sentence_transformer()
-    vectors = model.encode(list(texts), normalize_embeddings=True)
-    return [list(map(float, vector)) for vector in vectors]
+        embeddings.append(list(map(float, response.embeddings[0].values)))
+    return embeddings
 
 
 def embed_query(query: str) -> list[float]:

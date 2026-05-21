@@ -1,9 +1,3 @@
-"""eeg/parser.py — Read raw .edf files using the MNE library.
-
-Returns a clean dict of raw EEG data ready for analyzer.py.
-Handles corrupt or unsupported files gracefully with clear error messages.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

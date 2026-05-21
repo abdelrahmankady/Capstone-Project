@@ -1,56 +1,53 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from functools import lru_cache
 
-import ollama
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
-from config import LLM_PROVIDER, OLLAMA_MODEL, OPENAI_API_KEY, OPENAI_MODEL
+from config import GOOGLE_API_KEY, GOOGLE_LLM_MODEL
 
 
-def _stream_with_ollama(prompt: str, system_prompt: str) -> Iterator[str]:
-    stream = ollama.chat(
-        model=OLLAMA_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        stream=True,
+@lru_cache(maxsize=1)
+def _get_client() -> genai.Client:
+    """Return a cached Google GenAI client."""
+    if not GOOGLE_API_KEY:
+        raise ValueError(
+            "GOOGLE_API_KEY is required. Set it in your .env file. "
+            "Get a key from https://aistudio.google.com/apikey"
+        )
+    return genai.Client(api_key=GOOGLE_API_KEY)
+
+
+def _stream_with_google(prompt: str, system_prompt: str) -> Iterator[str]:
+    """Stream tokens from the Google Gemini API."""
+    client = _get_client()
+    response = client.models.generate_content_stream(
+        model=GOOGLE_LLM_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+        ),
     )
-    for chunk in stream:
-        content = chunk.get("message", {}).get("content", "")
-        if content:
-            yield content
-
-
-def _stream_with_openai(prompt: str, system_prompt: str) -> Iterator[str]:
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai.")
-
-    client = OpenAI(api_key=OPENAI_API_KEY)
-    stream = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        stream=True,
-    )
-    for chunk in stream:
-        content = chunk.choices[0].delta.content or ""
-        if content:
-            yield content
+    for chunk in response:
+        if chunk.text:
+            yield chunk.text
 
 
 def call_llm(prompt: str, system_prompt: str, stream: bool = True):
-    if LLM_PROVIDER == "ollama":
-        if stream:
-            return _stream_with_ollama(prompt, system_prompt)
-        return "".join(_stream_with_ollama(prompt, system_prompt))
+    """Call the Google Gemini LLM.
 
-    if LLM_PROVIDER == "openai":
-        if stream:
-            return _stream_with_openai(prompt, system_prompt)
-        return "".join(_stream_with_openai(prompt, system_prompt))
-
-    raise ValueError(f"Unsupported LLM provider: {LLM_PROVIDER}")
+    Parameters
+    ----------
+    prompt : str
+        The user-facing prompt (includes RAG context, history, etc.).
+    system_prompt : str
+        System-level instruction for the model's persona.
+    stream : bool
+        If True, returns an iterator of token strings.
+        If False, returns the full response as a single string.
+    """
+    if stream:
+        return _stream_with_google(prompt, system_prompt)
+    return "".join(_stream_with_google(prompt, system_prompt))

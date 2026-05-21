@@ -15,6 +15,9 @@ ENV/
 !.env.example
 
 # Project Specific
+chroma_db/
+data/eeg_scans/*
+!data/eeg_scans/.gitkeep
 chatbot/chroma_db/
 chatbot/data/
 
