@@ -199,7 +199,7 @@ def run_prediction(edf_path: str) -> dict:
     if not segments:
         raise ValueError("No valid segments could be extracted from the EDF file.")
 
-    # --- Per-segment predictions ---
+    # --- Per-segment predictions (Optimised with chunked batching) ---
     seizure_count = 0
     preictal_count = 0
     normal_count = 0
@@ -207,25 +207,49 @@ def run_prediction(edf_path: str) -> dict:
     max_preictal_prob = 0.0
     seizure_events: list[dict] = []
 
-    for seg in segments:
-        pred = _predict_segment(seg["segment"], sfreq)
-
-        if pred["label"] == "seizure":
-            seizure_count += 1
-            max_seizure_prob = max(max_seizure_prob, pred["probabilities"]["seizure"])
-            # Record as a seizure event with confidence and energy placeholder.
-            seizure_events.append({
-                "start_sec": round(seg["start_sec"], 2),
-                "end_sec": round(seg["end_sec"], 2),
-                "channel": ", ".join(raw.ch_names),
-                "confidence": round(pred["probabilities"]["seizure"], 3),
-                "energy_ratio": 0.0,  # Placeholder — CWT model does not compute this
-            })
-        elif pred["label"] == "preictal":
-            preictal_count += 1
-            max_preictal_prob = max(max_preictal_prob, pred["probabilities"]["preictal"])
-        else:
-            normal_count += 1
+    model = _load_model()
+    BATCH_SIZE = 64
+    
+    for i in range(0, len(segments), BATCH_SIZE):
+        batch_segments = segments[i : i + BATCH_SIZE]
+        
+        # Prepare inputs for this batch
+        input_arrays = []
+        for seg in batch_segments:
+            scalogram = _generate_cwt_array(seg["segment"], sfreq)
+            scalogram_3ch = np.stack([scalogram, scalogram, scalogram], axis=-1)
+            # Use float32 to save memory
+            input_arrays.append(scalogram_3ch.astype(np.float32))
+            
+        batch_input = np.array(input_arrays)
+        
+        # Predict the batch all at once
+        batch_probs = model.predict(batch_input, batch_size=BATCH_SIZE, verbose=0)
+        
+        # Process results
+        for j, seg in enumerate(batch_segments):
+            probs = batch_probs[j]
+            predicted_idx = int(np.argmax(probs))
+            label = CLASS_NAMES[predicted_idx]
+            
+            seizure_prob = float(probs[2])
+            preictal_prob = float(probs[1])
+            
+            if label == "seizure":
+                seizure_count += 1
+                max_seizure_prob = max(max_seizure_prob, seizure_prob)
+                seizure_events.append({
+                    "start_sec": round(seg["start_sec"], 2),
+                    "end_sec": round(seg["end_sec"], 2),
+                    "channel": ", ".join(raw.ch_names),
+                    "confidence": round(seizure_prob, 3),
+                    "energy_ratio": 0.0,
+                })
+            elif label == "preictal":
+                preictal_count += 1
+                max_preictal_prob = max(max_preictal_prob, preictal_prob)
+            else:
+                normal_count += 1
 
     # --- Overall prediction ---
     if seizure_count > 0:
