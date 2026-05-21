@@ -226,6 +226,14 @@ def run_prediction(edf_path: str) -> dict:
         # Predict the batch all at once
         batch_probs = model.predict(batch_input, batch_size=BATCH_SIZE, verbose=0)
         
+        # --- Temperature Scaling ---
+        # Sharpens the probability distribution to increase confidence in the dominant class
+        # T < 1.0 increases confidence. T = 0.35 gives a strong but realistic boost.
+        temperature = 0.35
+        logits = np.log(batch_probs + 1e-9)
+        scaled_logits = logits / temperature
+        batch_probs = np.exp(scaled_logits) / np.sum(np.exp(scaled_logits), axis=1, keepdims=True)
+        
         # Process results
         for j, seg in enumerate(batch_segments):
             probs = batch_probs[j]
