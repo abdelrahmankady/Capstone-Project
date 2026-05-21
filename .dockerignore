@@ -1,0 +1,22 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+
+# Ignore local environment variables
+.env
+
+# Ignore local databases and uploaded test files
+chroma_db/
+data/eeg_scans/*
+!data/eeg_scans/.gitkeep
+
+# Ignore IDE configs
+.vscode/
+.idea/
+.DS_Store
+
+# Ignore test caches
+.pytest_cache/

@@ -53,7 +53,12 @@ def chat():
         retrieved_chunks = retrieve_chunks(message, filename=filename)
 
         # --- Step 2: Verify retrieved chunks (filter low-relevance) ---
-        verified_chunks = verify_chunks(retrieved_chunks)
+        # If the user is explicitly viewing a specific file, bypass the strict similarity
+        # threshold so generic questions like "explain it" still return the file's data.
+        if filename:
+            verified_chunks = verify_chunks(retrieved_chunks, threshold=0.0)
+        else:
+            verified_chunks = verify_chunks(retrieved_chunks)
 
         # --- Step 3: Check if ChromaDB has any scan data at all ---
         # This tells the LLM whether scans have been analyzed, even if the
