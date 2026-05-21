@@ -110,6 +110,8 @@ def create_app() -> Flask:
 # ---------------------------------------------------------------------------
 # 4. Entry point — run the dev server
 # ---------------------------------------------------------------------------
+app = create_app()
+
 if __name__ == "__main__":
     port = int(os.getenv("FLASK_PORT", "5000"))
 
@@ -120,5 +122,4 @@ if __name__ == "__main__":
     print(f"  Port         : {port}")
     print("=" * 60)
 
-    app = create_app()
     app.run(host="0.0.0.0", port=port, debug=True)

@@ -18,3 +18,4 @@ Pillow
 scikit-learn
 matplotlib
 pytest
+gunicorn
